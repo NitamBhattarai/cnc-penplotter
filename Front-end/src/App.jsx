@@ -6,53 +6,66 @@ function App() {
   const [files, setFiles] = useState([]);
   const [previewUrl, setPreviewUrl] = useState(null);
   const [gcodeText, setGcodeText] = useState('');
-  const [typedText, setTypedText] = useState('');  // <-- New state for typing input
-  const [loading, setLoading] = useState(false);
+  const [textInput, setTextInput] = useState(''); // Typing input state
 
-  // File handlers remain unchanged...
-  // handleFileChange, handleDrop, handleDragOver...
+  // ========== File Upload / Drag & Drop ==========
+  const handleFileChange = (e) => {
+    const uploadedFiles = Array.from(e.target.files);
+    setFiles((prev) => [...prev, ...uploadedFiles]);
 
-  // New handler for typing input change
-  const handleTypedTextChange = (e) => {
-    setTypedText(e.target.value);
+    if (uploadedFiles.length > 0) {
+      const file = uploadedFiles[0];
+      if (file.type.startsWith('image/')) {
+        setPreviewUrl(URL.createObjectURL(file));
+      } else if (file.type === 'text/plain') {
+        setPreviewUrl(null);
+      }
+    }
   };
 
-  // Update your existing handleSendToBackend to support both typed text and file text
+  const handleDrop = (e) => {
+    e.preventDefault();
+    const droppedFiles = Array.from(e.dataTransfer.files);
+    setFiles((prev) => [...prev, ...droppedFiles]);
+  };
+
+  const handleDragOver = (e) => {
+    e.preventDefault();
+  };
+
+  // ========== Backend / G-code ==========
   const handleSendToBackend = async () => {
-    let textToSend = '';
+    let content = '';
 
-    if (typedText.trim() !== '') {
-      // If user typed something, use that text
-      textToSend = typedText.trim();
+    // Priority: Typing input > Text file
+    if (textInput.trim() !== '') {
+      content = textInput;
     } else {
-      // Otherwise, fallback to uploaded text file
-      if (files.length === 0) return alert("Upload a file or type text first!");
-
       const textFile = files.find(f => f.type === "text/plain");
-      if (!textFile) return alert("No text file uploaded and no typed text!");
-
-      // Read the file content asynchronously before sending
-      textToSend = await new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = (e) => resolve(e.target.result);
-        reader.onerror = () => reject(new Error("Failed to read file"));
-        reader.readAsText(textFile);
-      });
+      if (!textFile) return alert("Type something or upload a text file!");
+      const reader = new FileReader();
+      reader.onload = async (e) => {
+        content = e.target.result;
+        await sendToBackend(content);
+      };
+      reader.readAsText(textFile);
+      return; // wait for FileReader
     }
 
+    await sendToBackend(content);
+  };
+
+  const sendToBackend = async (content) => {
     try {
-      setLoading(true);
       const response = await axios.post(
-        "https://cnc-penplotter.onrender.com/gcode",  // <-- Use your backend URL here
-        { text: textToSend }
+        "https://cnc-penplotter.onrender.com/gcode", // Replace with your deployed backend URL
+        { text: content },
+        { headers: { "Content-Type": "application/json" } }
       );
       setGcodeText(response.data);
-      alert("G-code generated successfully!");
     } catch (err) {
       console.error("Error:", err);
       alert("Failed to fetch G-code from backend.");
-    } finally {
-      setLoading(false);
     }
   };
 
@@ -69,28 +82,28 @@ function App() {
 
   return (
     <div className="app-container">
+      {/* Header */}
       <header className="header">
         <h1>Document Preview Studio</h1>
-        <p>Upload text files or type text and generate G-code</p>
+        <p>Upload text files or type text to generate G-code</p>
       </header>
 
       <main className="main-content">
+        {/* Left panel - Controls */}
         <section className="control-panel glass">
-
-          {/* ========== New Typing Input Area ========== */}
-          <div className="typing-input glass" style={{ marginBottom: '1rem' }}>
-            <label htmlFor="typedText">Type text here:</label>
+          {/* Typing Input */}
+          <div className="typing-input">
+            <label htmlFor="typingText">Type Your Text:</label>
             <textarea
-              id="typedText"
-              rows={4}
-              value={typedText}
-              onChange={handleTypedTextChange}
-              placeholder="Type your text to convert to G-code..."
-              style={{ width: '100%', padding: '0.5rem', fontSize: '1rem' }}
+              id="typingText"
+              value={textInput}
+              onChange={(e) => setTextInput(e.target.value)}
+              placeholder="Enter text here..."
+              rows={5}
             />
           </div>
 
-          {/* Existing upload area and file list here... */}
+          {/* Upload Area */}
           <div className="upload-area glass"
                onDrop={handleDrop}
                onDragOver={handleDragOver}>
@@ -114,6 +127,7 @@ function App() {
             </div>
           </div>
 
+          {/* Uploaded Files */}
           <div className="uploaded-files">
             <h4>Uploaded Files</h4>
             {files.length === 0 ? (
@@ -127,9 +141,10 @@ function App() {
             )}
           </div>
 
+          {/* Action Buttons */}
           <div className="action-buttons">
-            <button className="download-btn" onClick={handleSendToBackend} disabled={loading}>
-              {loading ? "Generating..." : "Generate G-code"}
+            <button className="download-btn" onClick={handleSendToBackend}>
+              ⬇️ Generate G-code
             </button>
             <button className="download-btn" onClick={downloadGcode}>
               💾 Download G-code
@@ -137,6 +152,7 @@ function App() {
           </div>
         </section>
 
+        {/* Right panel - Preview */}
         <section className="preview-panel glass">
           <div className="preview-area">
             {previewUrl ? (
@@ -150,11 +166,12 @@ function App() {
               <div className="empty-preview">
                 <div className="icon">📄</div>
                 <h4>No content to preview</h4>
-                <p>Upload a text file or type text to see the preview here</p>
+                <p>Type text or upload a file to see the preview here</p>
               </div>
             )}
           </div>
 
+          {/* G-code Preview */}
           {gcodeText && (
             <div className="preview-gcode">
               <h4>G-code Preview</h4>

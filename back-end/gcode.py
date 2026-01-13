@@ -1,67 +1,90 @@
-from font import FONT
+from font import FONT  # your existing font dictionary
 
-# Configuration
-X_START = 10
-Y_START = 10
-SCALE = 10
+# ===== CONFIGURATION =====
+WORKSPACE_WIDTH = 26
+WORKSPACE_HEIGHT = 26
+MARGIN = 1
+
+X_START = 1
+Y_START = 1
+SCALE = 4
 FEEDRATE = 800
-LETTER_SPACING = 12
-LINE_SPACING = 15
+LETTER_SPACING = 5
+LINE_SPACING = 7
 
-PEN_UP = 5
-PEN_DOWN = 0
+PEN_DOWN_CMD = "M3"
+PEN_UP_CMD = "M5"
 
+# ===== HELPER =====
+def clamp(val, min_v, max_v):
+    return max(min_v, min(val, max_v))
+
+# ===== MAIN FUNCTION =====
 def text_to_gcode(text):
     gcode = []
 
-    # --- G-code header ---
-    gcode.append("G21        ; set units to mm")
+    # ---- Header ----
+    gcode.append("G21        ; mm units")
     gcode.append("G90        ; absolute positioning")
-    gcode.append(f"G0 Z{PEN_UP}")
-    gcode.append(f"G0 X{X_START} Y{Y_START}")
+    gcode.append(PEN_UP_CMD)
+    gcode.append(f"G0 X{X_START:.2f} Y{Y_START:.2f}")
 
     x = X_START
     y = Y_START
+    max_x = WORKSPACE_WIDTH - MARGIN
+    max_y = WORKSPACE_HEIGHT - MARGIN
 
     for char in text:
-        # New line
+        # ---- New line ----
         if char == "\n":
             x = X_START
             y += LINE_SPACING
-            gcode.append(f"G0 Z{PEN_UP}")
-            gcode.append(f"G0 X{x} Y{y}")
+            if y > max_y:
+                break
+            gcode.append(PEN_UP_CMD)
+            gcode.append(f"G0 X{x:.2f} Y{y:.2f}")
             continue
 
-        # Space
+        # ---- Space ----
         if char == " ":
             x += LETTER_SPACING
+            if x > max_x:
+                x = X_START
+                y += LINE_SPACING
             continue
 
-        char = char if char in FONT else ' '
-        strokes = FONT[char]
-
+        strokes = FONT.get(char, [])
         for stroke in strokes:
-            if len(stroke) != 2:
+            if len(stroke) < 2:
                 continue
 
-            (x0, y0), (x1, y1) = stroke
+            # Move to first point (pen up)
+            x0, y0 = stroke[0]
+            sx0 = clamp(x + x0 * SCALE, MARGIN, max_x)
+            sy0 = clamp(y + y0 * SCALE, MARGIN, max_y)
 
-            # scale and translate
-            sx0 = x + x0 * SCALE
-            sy0 = y + y0 * SCALE
-            sx1 = x + x1 * SCALE
-            sy1 = y + y1 * SCALE
-
-            # Move pen up → go to start → pen down → draw
-            gcode.append(f"G0 Z{PEN_UP}")
+            gcode.append(PEN_UP_CMD)
             gcode.append(f"G0 X{sx0:.2f} Y{sy0:.2f}")
-            gcode.append(f"G1 Z{PEN_DOWN} F300")
-            gcode.append(f"G1 X{sx1:.2f} Y{sy1:.2f} F{FEEDRATE}")
+            gcode.append(PEN_DOWN_CMD)
 
+            # Draw stroke
+            for px, py in stroke[1:]:
+                sx = clamp(x + px * SCALE, MARGIN, max_x)
+                sy = clamp(y + py * SCALE, MARGIN, max_y)
+                gcode.append(f"G1 X{sx:.2f} Y{sy:.2f} F{FEEDRATE}")
+
+            gcode.append(PEN_UP_CMD)
+
+        # Advance cursor
         x += LETTER_SPACING
+        if x > max_x:
+            x = X_START
+            y += LINE_SPACING
+            if y > max_y:
+                break
 
-    # --- Footer ---
-    gcode.append(f"G0 Z{PEN_UP}")
-    gcode.append("M2")
+    # ---- Footer ----
+    gcode.append(PEN_UP_CMD)
+    gcode.append("M30")
 
     return "\n".join(gcode)

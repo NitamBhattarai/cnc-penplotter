@@ -69,6 +69,41 @@ function App() {
     }
   };
 
+  const sendToPlotter = async (content) => {
+    try {
+      const res = await axios.post(
+        "https://cnc-penplotter.onrender.com/submit",
+        { text: content },
+        { headers: { "Content-Type": "application/json" } }
+      );
+      alert("✅ Job queued for ESP32 plotter!");
+      console.log(res.data);
+    } catch (err) {
+      console.error("Error:", err);
+      alert("❌ Failed to queue job for plotter.");
+    } 
+  };
+  const handleSendToPlotter = async () => {
+    let content = '';
+
+    if (textInput.trim() !== '') {
+      content = textInput;
+    } else {
+      const textFile = files.find(f => f.type === "text/plain");
+      if (!textFile) return alert("Type something or upload a text file!");
+      const reader = new FileReader();
+      reader.onload = async (e) => {
+        content = e.target.result;
+        await sendToPlotter(content);
+      };
+      reader.readAsText(textFile);
+      return;
+    }
+
+    await sendToPlotter(content);
+  };
+  
+
   const downloadGcode = () => {
     if (!gcodeText) return alert("No G-code to download!");
     const blob = new Blob([gcodeText], { type: "text/plain" });
@@ -148,6 +183,9 @@ function App() {
             </button>
             <button className="download-btn" onClick={downloadGcode}>
               💾 Download G-code
+            </button>
+            <button className="download-btn" onClick={handleSendToPlotter}>
+              🖊️ Send to Plotter
             </button>
           </div>
         </section>

@@ -1,14 +1,14 @@
 import network
 import time
 
-SSID = "YOUR_WIFI_NAME"
-PASSWORD = "YOUR_WIFI_PASSWORD"
+SSID = "rautsantosh_fbrtn"
+PASSWORD = "CLED02FB37"
 
 wifi = network.WLAN(network.STA_IF)
 wifi.active(True)
 
 if not wifi.isconnected():
-    wifi.connect("rautsantosh_fbrtn", "CLED02FB37")
+    wifi.connect(SSID, PASSWORD)
     while not wifi.isconnected():
         time.sleep(1)
 

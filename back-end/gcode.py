@@ -7,6 +7,18 @@ WORKSPACE_HEIGHT = 150
 MARGIN = 5
 FEEDRATE = 1000
 
+# Coordinate safety / orientation
+# If your machine axes are mirrored relative to the generated coordinates, flip them here.
+FLIP_X = False
+FLIP_Y = False
+
+# Absolute clamp bounds in mm (keeps coordinates inside the workspace even after rounding)
+CLAMP_COORDS = True
+CLAMP_MIN_X = 0.0
+CLAMP_MIN_Y = 0.0
+CLAMP_MAX_X = WORKSPACE_WIDTH
+CLAMP_MAX_Y = WORKSPACE_HEIGHT
+
 # Text placement / sizing
 # Increase this to make the text bigger (it will still be clamped to fit the workspace)
 SCALE_MULTIPLIER = 1.0
@@ -35,6 +47,14 @@ def _bbox_of_segments(segs):
     if not xs:
         return 0, 0, 0, 0
     return min(xs), min(ys), max(xs), max(ys)
+
+
+def _clamp(v, lo, hi):
+    if v < lo:
+        return lo
+    if v > hi:
+        return hi
+    return v
 
 
 def text_to_gcode(text: str) -> str:
@@ -99,12 +119,23 @@ def text_to_gcode(text: str) -> str:
     gcode.append("G90")  # absolute
     gcode.append(PEN_UP_CMD)
 
-    def mmx(x): return x_offset + (x - minx) * scale
-    def mmy(y): return y_offset + (y - miny) * scale
+    def mmx(x):
+        v = x_offset + (x - minx) * scale
+        return (WORKSPACE_WIDTH - v) if FLIP_X else v
+
+    def mmy(y):
+        v = y_offset + (y - miny) * scale
+        return (WORKSPACE_HEIGHT - v) if FLIP_Y else v
 
     for (x1, y1), (x2, y2) in all_segs:
         x1m, y1m = mmx(x1), mmy(y1)
         x2m, y2m = mmx(x2), mmy(y2)
+
+        if CLAMP_COORDS:
+            x1m = _clamp(x1m, CLAMP_MIN_X, CLAMP_MAX_X)
+            y1m = _clamp(y1m, CLAMP_MIN_Y, CLAMP_MAX_Y)
+            x2m = _clamp(x2m, CLAMP_MIN_X, CLAMP_MAX_X)
+            y2m = _clamp(y2m, CLAMP_MIN_Y, CLAMP_MAX_Y)
 
         # pen up move to start
         gcode.append(PEN_UP_CMD)

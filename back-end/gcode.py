@@ -14,8 +14,8 @@ FLIP_Y = False
 
 # Absolute clamp bounds in mm (keeps coordinates inside the workspace even after rounding)
 CLAMP_COORDS = True
-CLAMP_MIN_X = 0.0
-CLAMP_MIN_Y = 0.0
+CLAMP_MIN_X = MARGIN
+CLAMP_MIN_Y = MARGIN
 CLAMP_MAX_X = WORKSPACE_WIDTH
 CLAMP_MAX_Y = WORKSPACE_HEIGHT
 

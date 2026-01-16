@@ -28,8 +28,8 @@ H_ALIGN = "left"
 # Alignment inside the workspace: "bottom" or "center" (top not implemented)
 V_ALIGN = "bottom"
 
-PEN_DOWN_CMD = "M03 S90"
-PEN_UP_CMD = "M5"
+PEN_DOWN_CMD = "M03 S40\nG4 P0.2"
+PEN_UP_CMD   = "M5\nG4 P0.2"
 
 # Pick a Hershey font (change if you want)
 HERSHEY_FONT_NAME = "futural"  # common; if it errors, try "gothiceng"

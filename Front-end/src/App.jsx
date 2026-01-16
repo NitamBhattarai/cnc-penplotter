@@ -6,7 +6,8 @@ function App() {
   const [files, setFiles] = useState([]);
   const [previewUrl, setPreviewUrl] = useState(null);
   const [gcodeText, setGcodeText] = useState('');
-  const [textInput, setTextInput] = useState(''); // Typing input state
+  const [textInput, setTextInput] = useState('');
+  const [textPreview, setTextPreview] = useState('');
 
   // ========== File Upload / Drag & Drop ==========
   const handleFileChange = (e) => {
@@ -15,10 +16,21 @@ function App() {
 
     if (uploadedFiles.length > 0) {
       const file = uploadedFiles[0];
+
+      // Image preview
       if (file.type.startsWith('image/')) {
         setPreviewUrl(URL.createObjectURL(file));
-      } else if (file.type === 'text/plain') {
+        setTextPreview('');
+      }
+
+      // Text preview
+      else if (file.type === 'text/plain') {
         setPreviewUrl(null);
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          setTextPreview(e.target.result);
+        };
+        reader.readAsText(file);
       }
     }
   };
@@ -37,19 +49,20 @@ function App() {
   const handleSendToBackend = async () => {
     let content = '';
 
-    // Priority: Typing input > Text file
+    // Priority: Typed text > Text file
     if (textInput.trim() !== '') {
       content = textInput;
     } else {
       const textFile = files.find(f => f.type === "text/plain");
       if (!textFile) return alert("Type something or upload a text file!");
+
       const reader = new FileReader();
       reader.onload = async (e) => {
         content = e.target.result;
         await sendToBackend(content);
       };
       reader.readAsText(textFile);
-      return; // wait for FileReader
+      return;
     }
 
     await sendToBackend(content);
@@ -58,7 +71,7 @@ function App() {
   const sendToBackend = async (content) => {
     try {
       const response = await axios.post(
-        "https://cnc-penplotter.onrender.com/gcode", // Replace with your deployed backend URL
+        "https://cnc-penplotter.onrender.com/gcode",
         { text: content },
         { headers: { "Content-Type": "application/json" } }
       );
@@ -69,20 +82,6 @@ function App() {
     }
   };
 
-  const sendToPlotter = async (content) => {
-    try {
-      const res = await axios.post(
-        "https://cnc-penplotter.onrender.com/submit",
-        { text: content },
-        { headers: { "Content-Type": "application/json" } }
-      );
-      alert("✅ Job queued for ESP32 plotter!");
-      console.log(res.data);
-    } catch (err) {
-      console.error("Error:", err);
-      alert("❌ Failed to queue job for plotter.");
-    } 
-  };
   const handleSendToPlotter = async () => {
     let content = '';
 
@@ -91,6 +90,7 @@ function App() {
     } else {
       const textFile = files.find(f => f.type === "text/plain");
       if (!textFile) return alert("Type something or upload a text file!");
+
       const reader = new FileReader();
       reader.onload = async (e) => {
         content = e.target.result;
@@ -102,7 +102,20 @@ function App() {
 
     await sendToPlotter(content);
   };
-  
+
+  const sendToPlotter = async (content) => {
+    try {
+      await axios.post(
+        "https://cnc-penplotter.onrender.com/submit",
+        { text: content },
+        { headers: { "Content-Type": "application/json" } }
+      );
+      alert("✅ Job queued for ESP32 plotter!");
+    } catch (err) {
+      console.error("Error:", err);
+      alert("❌ Failed to queue job for plotter.");
+    }
+  };
 
   const downloadGcode = () => {
     if (!gcodeText) return alert("No G-code to download!");
@@ -124,24 +137,30 @@ function App() {
       </header>
 
       <main className="main-content">
-        {/* Left panel - Controls */}
+        {/* Left Panel */}
         <section className="control-panel glass">
+
           {/* Typing Input */}
           <div className="typing-input">
             <label htmlFor="typingText">Type Your Text:</label>
             <textarea
               id="typingText"
               value={textInput}
-              onChange={(e) => setTextInput(e.target.value)}
+              onChange={(e) => {
+                setTextInput(e.target.value);
+                setTextPreview(e.target.value);
+              }}
               placeholder="Enter text here..."
               rows={5}
             />
           </div>
 
           {/* Upload Area */}
-          <div className="upload-area glass"
-               onDrop={handleDrop}
-               onDragOver={handleDragOver}>
+          <div
+            className="upload-area glass"
+            onDrop={handleDrop}
+            onDragOver={handleDragOver}
+          >
             <div className="upload-content">
               <div className="upload-icon">☁️</div>
               <h3>Drag & Drop Files Here</h3>
@@ -170,7 +189,9 @@ function App() {
             ) : (
               <ul>
                 {files.map((file, i) => (
-                  <li key={i}>{file.name} ({(file.size / 1024).toFixed(1)} KB)</li>
+                  <li key={i}>
+                    {file.name} ({(file.size / 1024).toFixed(1)} KB)
+                  </li>
                 ))}
               </ul>
             )}
@@ -190,15 +211,18 @@ function App() {
           </div>
         </section>
 
-        {/* Right panel - Preview */}
+        {/* Right Panel */}
         <section className="preview-panel glass">
           <div className="preview-area">
             {previewUrl ? (
-              <img src={previewUrl} alt="Preview" className="preview-image" />
-            ) : files.some(f => f.type === 'text/plain') ? (
-              <div className="text-placeholder">
-                <p>Text document loaded</p>
-                <small>(text preview not rendered in this demo)</small>
+              <img
+                src={previewUrl}
+                alt="Preview"
+                className="preview-image"
+              />
+            ) : textPreview ? (
+              <div className="text-preview">
+                <pre>{textPreview}</pre>
               </div>
             ) : (
               <div className="empty-preview">

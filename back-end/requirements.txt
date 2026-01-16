@@ -3,3 +3,4 @@ flask-cors
 python-docx
 PyPDF2
 gunicorn
+Hershey-Fonts==2.1.0

@@ -41,7 +41,7 @@ PEN_DOWN_CMD: str = f"M03 S35\nG4 P{PEN_DWELL_S}"
 PEN_UP_CMD: str = f"M5\nG4 P{PEN_DWELL_S}"
 
 # Italic variants: "timesi" (Times Italic), "rowmani" (Roman Italic). You can also try "scriptc".
-HERSHEY_FONT_NAME: str = "timesi"
+HERSHEY_FONT_NAME: str = "rowmans"
 
 # Optional flips (if your machine is mirrored)
 FLIP_X: bool = False

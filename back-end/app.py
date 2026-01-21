@@ -2,7 +2,7 @@
 from collections import deque
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-from gcode import text_to_hershey_gcode
+from gcode import text_to_gcode
 import os
 import threading
 
@@ -38,7 +38,7 @@ def gcode():
         text = (data.get("text") or "").strip()
         if not text:
             return "Missing text", 400, {"Content-Type": "text/plain"}
-        gcode = text_to_hershey_gcode(text)
+        gcode = text_to_gcode(text)
         return gcode, 200, {"Content-Type": "text/plain"}
 
     # ESP32: poll next queued job
@@ -48,7 +48,7 @@ def gcode():
 
         text = _job_queue.popleft()  # consume oldest job
 
-    gcode = text_to_hershey_gcode(text)
+    gcode = text_to_gcode(text)
     return gcode, 200, {"Content-Type": "text/plain"}
 
 @app.route("/status", methods=["GET"])

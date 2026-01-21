@@ -1,52 +1,70 @@
-# hershey_gcode_cli_fixed_size_top_right.py
-# pip install Hershey-Fonts
-# Run: python hershey_gcode_cli_fixed_size_top_right.py
-#
-# Behavior:
-# - Fixed font size: capital-letter height ≈ 0.5 cm (5 mm)
-# - Text starts from the LEFT side and the whole text block is vertically centered ("left-middle")
-# - Multi-line supported. Lines are stacked downward and the block is centered around the page middle.
-# - If a line is too long, text is wrapped to fit within the workspace width.
+"""gcode.py
+
+Text -> Hershey stroke font -> GRBL-friendly pen-plotter G-code.
+
+Exports:
+  - text_to_gcode(text: str) -> str
+
+Behavior:
+  - Fixed font size: capital-letter height set by TARGET_CAP_HEIGHT_MM
+  - Italic Hershey font by default (Times Italic)
+  - Placement: LEFT-MIDDLE (block left-aligned to margin, vertically centered as a whole)
+  - Multi-line supported; long lines automatically wrap to fit within width
+
+Notes:
+  - Requires: pip install Hershey-Fonts
+"""
+
+from __future__ import annotations
 
 from HersheyFonts import HersheyFonts
 
 # ===== Plotter / workspace config (mm) =====
-WORKSPACE_WIDTH_MM  = 150
-WORKSPACE_HEIGHT_MM = 150
-MARGIN_MM           = 5
-FEEDRATE            = 1500
+WORKSPACE_WIDTH_MM: float = 150.0
+WORKSPACE_HEIGHT_MM: float = 150.0
+MARGIN_MM: float = 5.0
+
+# Motion
+FEEDRATE: int = 1500
 
 # Target "capital letter height" (0.5 cm = 5 mm)
-TARGET_CAP_HEIGHT_MM = 5.0
+TARGET_CAP_HEIGHT_MM: float = 10.0
 
-# Extra gap between lines, in "cap-height" multiples
-LINE_GAP_CAP_MULT = 0.35  # tweak: 0.2 tighter, 0.6 looser
+# Extra gap between lines, as a fraction of cap height
+LINE_GAP_CAP_MULT: float = 0.35  # 0.2 tighter, 0.6 looser
 
 # Pen commands (match your GRBL setup)
-PEN_DOWN_CMD = "M03 S35\nG4 P0.2"
-PEN_UP_CMD   = "M5\nG4 P0.2"
+# Long dwells make plotting painfully slow. Increase PEN_DWELL_S only if your
+# pen actuator (servo/solenoid) needs more time to settle.
+PEN_DWELL_S: float = 0.0
+PEN_DOWN_CMD: str = f"M03 S35\nG4 P{PEN_DWELL_S}"
+PEN_UP_CMD: str = f"M5\nG4 P{PEN_DWELL_S}"
 
-# Italic variants: "timesi" (Times Italic), "rowmani" (Roman Italic). You can also try "scriptc" for a cursive look.
-HERSHEY_FONT_NAME = "timesi"
+# Italic variants: "timesi" (Times Italic), "rowmani" (Roman Italic). You can also try "scriptc".
+HERSHEY_FONT_NAME: str = "timesi"
 
 # Optional flips (if your machine is mirrored)
-FLIP_X = False
-FLIP_Y = False
+FLIP_X: bool = False
+FLIP_Y: bool = False
 
 # Clamp into workspace (safer)
-CLAMP_COORDS = True
+CLAMP_COORDS: bool = True
 
 # Wrap long lines to fit within the drawable width
-WRAP_TEXT = True
-# Max drawable width (mm) inside margins
-MAX_TEXT_WIDTH_MM = WORKSPACE_WIDTH_MM - 2 * MARGIN_MM
+WRAP_TEXT: bool = True
+MAX_TEXT_WIDTH_MM: float = WORKSPACE_WIDTH_MM - 2 * MARGIN_MM
+
+# If a segment starts close to the previous segment end, keep the pen down and continue.
+# This drastically reduces M5/M03 toggles (especially for letters like O).
+CONNECT_TOL_MM: float = 0.40
 
 
-def clamp(v, lo, hi):
+def _clamp(v: float, lo: float, hi: float) -> float:
     return lo if v < lo else hi if v > hi else v
 
 
-def bbox_of_segments(segs):
+def _bbox_of_segments(segs):
+    """Return (minx, miny, maxx, maxy) for a list of segments."""
     xs, ys = [], []
     for (x1, y1), (x2, y2) in segs:
         xs.extend([x1, x2])
@@ -56,18 +74,18 @@ def bbox_of_segments(segs):
     return min(xs), min(ys), max(xs), max(ys)
 
 
-def line_width_units(hf: HersheyFonts, s: str) -> float:
+def _line_width_units(hf: HersheyFonts, s: str) -> float:
     segs = list(hf.lines_for_text(s))
     if not segs:
         return 0.0
-    minx, _, maxx, _ = bbox_of_segments(segs)
+    minx, _, maxx, _ = _bbox_of_segments(segs)
     return maxx - minx
 
 
-def estimate_max_chars_per_line(hf: HersheyFonts, max_width_units: float) -> int:
-    # Use a mixed sample to estimate average character width
+def _estimate_max_chars_per_line(hf: HersheyFonts, max_width_units: float) -> int:
+    """Rough estimate: varies by letters/spaces; used for debugging/intuition."""
     sample = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
-    w = line_width_units(hf, sample)
+    w = _line_width_units(hf, sample)
     if w <= 0:
         return 0
     avg = w / len(sample)
@@ -76,11 +94,11 @@ def estimate_max_chars_per_line(hf: HersheyFonts, max_width_units: float) -> int
     return int(max_width_units // avg)
 
 
-def wrap_text_lines(hf: HersheyFonts, text: str, max_width_units: float):
-    """
-    Wrap input text into a list of lines so each line's width (in font units) <= max_width_units.
+def _wrap_text_lines(hf: HersheyFonts, text: str, max_width_units: float):
+    """Wrap input into lines so each line's width (font units) <= max_width_units.
+
     - Preserves existing newlines.
-    - Wraps primarily on spaces; if a single word exceeds width, it hard-wraps by characters.
+    - Wraps on spaces; if a single word exceeds width, hard-wraps by characters.
     """
     out_lines = []
     for raw_line in (text.splitlines() or [""]):
@@ -92,33 +110,28 @@ def wrap_text_lines(hf: HersheyFonts, text: str, max_width_units: float):
         words = line.split(" ")
         cur = ""
         for w in words:
-            if cur == "":
-                candidate = w
-            else:
-                candidate = cur + " " + w
+            candidate = w if cur == "" else (cur + " " + w)
 
-            if line_width_units(hf, candidate) <= max_width_units:
+            if _line_width_units(hf, candidate) <= max_width_units:
                 cur = candidate
                 continue
 
-            # candidate too wide: push current line if non-empty
             if cur:
                 out_lines.append(cur)
                 cur = ""
 
-            # if the word itself is too wide, hard-wrap it
-            if line_width_units(hf, w) > max_width_units:
+            # Hard-wrap if a single word is wider than the line
+            if _line_width_units(hf, w) > max_width_units:
                 chunk = ""
                 for ch in w:
                     cand2 = chunk + ch
-                    if line_width_units(hf, cand2) <= max_width_units:
+                    if _line_width_units(hf, cand2) <= max_width_units:
                         chunk = cand2
                     else:
                         if chunk:
                             out_lines.append(chunk)
                         chunk = ch
-                if chunk:
-                    cur = chunk
+                cur = chunk
             else:
                 cur = w
 
@@ -127,15 +140,16 @@ def wrap_text_lines(hf: HersheyFonts, text: str, max_width_units: float):
     return out_lines
 
 
-def segments_for_multiline_text_down(hf: HersheyFonts, lines, line_gap_units: float):
-    """
-    Build segments for multi-line text in font units.
-    Anchoring is NOT applied here; we just stack lines downward.
+def _segments_for_multiline_text_down(hf: HersheyFonts, lines, line_gap_units: float):
+    """Return stroke segments in font units for multi-line text.
+
+    Each line is normalized so its LEFT is x=0 and its TOP is y=0,
+    then lines are stacked downward.
     """
     lines = list(lines) if lines is not None else [""]
 
     all_segs = []
-    y_cursor = 0.0  # start at top line, then move DOWN (negative y)
+    y_cursor = 0.0  # start at top line; move DOWN (negative y)
 
     for ln in lines:
         segs = list(hf.lines_for_text(ln))
@@ -143,67 +157,58 @@ def segments_for_multiline_text_down(hf: HersheyFonts, lines, line_gap_units: fl
             y_cursor -= line_gap_units
             continue
 
-        # Normalize this line so it starts at x=0 (left), and its TOP is y=0
-        minx, miny, maxx, maxy = bbox_of_segments(segs)
+        minx, miny, maxx, maxy = _bbox_of_segments(segs)
 
-        # Make line's top = 0 by subtracting maxy; make left = 0 by subtracting minx
-        norm = [((x1 - minx, y1 - maxy), (x2 - minx, y2 - maxy)) for (x1, y1), (x2, y2) in segs]
+        # Normalize line: left=0 and top=0
+        norm = [
+            ((x1 - minx, y1 - maxy), (x2 - minx, y2 - maxy))
+            for (x1, y1), (x2, y2) in segs
+        ]
 
-        # Shift line down by y_cursor (y_cursor is negative as we go down)
-        shifted = [((x1, y1 + y_cursor), (x2, y2 + y_cursor)) for (x1, y1), (x2, y2) in norm]
+        # Shift line down by y_cursor
+        shifted = [
+            ((x1, y1 + y_cursor), (x2, y2 + y_cursor))
+            for (x1, y1), (x2, y2) in norm
+        ]
         all_segs.extend(shifted)
 
-        # Move cursor down by this line's height + gap
+        # Advance cursor down by line height + gap
         height = maxy - miny
         y_cursor -= (height + line_gap_units)
 
     return all_segs
 
 
-def compute_mm_per_unit_for_cap_height(hf: HersheyFonts):
-    """
-    Compute mm-per-font-unit so that a typical capital letter is TARGET_CAP_HEIGHT_MM tall.
-
-    We use 'H' as the reference capital letter (you can switch to 'M' or 'A' if you prefer).
-    """
-    ref = "H"
-    segs = list(hf.lines_for_text(ref))
+def _mm_per_unit_for_cap_height(hf: HersheyFonts) -> float:
+    """Scale so that capital 'H' height is TARGET_CAP_HEIGHT_MM."""
+    segs = list(hf.lines_for_text("H"))
     if not segs:
-        # fallback safe value
         return 0.35
 
-    _, miny, _, maxy = bbox_of_segments(segs)
-    cap_height_units = (maxy - miny)
+    _, miny, _, maxy = _bbox_of_segments(segs)
+    cap_height_units = maxy - miny
     if cap_height_units <= 0:
         return 0.35
 
     return TARGET_CAP_HEIGHT_MM / cap_height_units
 
 
-def units_to_mm_left_middle(segs_units, mm_per_unit):
-    """
-    Convert font-unit segments to mm.
+def _units_to_mm_left_middle(segs_units, mm_per_unit: float):
+    """Convert font-unit segments to mm with LEFT-MIDDLE placement.
 
-    Placement:
-    - X: align the block's left edge to the left margin.
-    - Y: vertically center the ENTIRE text block around the page midline ("left-middle").
-
-    This means if there are 3 lines, the middle line will be around the center of the page,
-    and the top line will start above it.
+    - X: align block left edge to left margin.
+    - Y: vertically center the entire text block around the page midline.
     """
     if not segs_units:
         return []
 
-    minx, miny, maxx, maxy = bbox_of_segments(segs_units)
+    minx, miny, maxx, maxy = _bbox_of_segments(segs_units)
 
-    # Left margin anchor for X
     anchor_x = MARGIN_MM
-
-    # Center of the workspace for Y
     workspace_center_y = WORKSPACE_HEIGHT_MM / 2.0
     block_center_y_units = (miny + maxy) / 2.0
 
-    segs_mm = []
+    out = []
     for (x1, y1), (x2, y2) in segs_units:
         X1 = (x1 - minx) * mm_per_unit + anchor_x
         Y1 = (y1 - block_center_y_units) * mm_per_unit + workspace_center_y
@@ -218,77 +223,109 @@ def units_to_mm_left_middle(segs_units, mm_per_unit):
             Y2 = WORKSPACE_HEIGHT_MM - Y2
 
         if CLAMP_COORDS:
-            X1 = clamp(X1, MARGIN_MM, WORKSPACE_WIDTH_MM - MARGIN_MM)
-            X2 = clamp(X2, MARGIN_MM, WORKSPACE_WIDTH_MM - MARGIN_MM)
-            Y1 = clamp(Y1, MARGIN_MM, WORKSPACE_HEIGHT_MM - MARGIN_MM)
-            Y2 = clamp(Y2, MARGIN_MM, WORKSPACE_HEIGHT_MM - MARGIN_MM)
+            X1 = _clamp(X1, MARGIN_MM, WORKSPACE_WIDTH_MM - MARGIN_MM)
+            X2 = _clamp(X2, MARGIN_MM, WORKSPACE_WIDTH_MM - MARGIN_MM)
+            Y1 = _clamp(Y1, MARGIN_MM, WORKSPACE_HEIGHT_MM - MARGIN_MM)
+            Y2 = _clamp(Y2, MARGIN_MM, WORKSPACE_HEIGHT_MM - MARGIN_MM)
 
-        segs_mm.append(((X1, Y1), (X2, Y2)))
+        out.append(((X1, Y1), (X2, Y2)))
 
-    return segs_mm
+    return out
 
 
-def to_gcode(segs_mm):
+def _dist2(a, b) -> float:
+    dx = a[0] - b[0]
+    dy = a[1] - b[1]
+    return dx * dx + dy * dy
+
+
+def _to_gcode(segs_mm) -> str:
+    """Convert segments to G-code while minimizing pen toggles.
+
+    Strategy:
+    - Rapid (pen up) to the start of a stroke.
+    - Pen down.
+    - For subsequent segments:
+        * If the next segment starts where we are (within CONNECT_TOL_MM), keep pen down.
+        * Otherwise lift pen, rapid to new start, pen down again.
+
+    This makes letters like 'O' much faster because they are made of many connected segments.
+    """
     out = []
     out.append("G21")  # mm
     out.append("G90")  # absolute
     out.append(PEN_UP_CMD)
     out.append(f"F{FEEDRATE}")
 
-    # Simple/robust: lift between every segment (safe, but verbose)
+    tol2 = CONNECT_TOL_MM * CONNECT_TOL_MM
+    pen_is_down = False
+    cur_pos = None  # (x,y)
+
     for (x1, y1), (x2, y2) in segs_mm:
-        out.append(PEN_UP_CMD)
-        out.append(f"G0 X{x1:.3f} Y{y1:.3f}")
-        out.append(PEN_DOWN_CMD)
+        start = (x1, y1)
+        end = (x2, y2)
+
+        # If we're not at the segment start, reposition with pen up.
+        if (cur_pos is None) or (_dist2(cur_pos, start) > tol2):
+            if pen_is_down:
+                out.append(PEN_UP_CMD)
+                pen_is_down = False
+            out.append(f"G0 X{x1:.3f} Y{y1:.3f}")
+            out.append(PEN_DOWN_CMD)
+            pen_is_down = True
+
+        # Draw to segment end (keep pen down)
         out.append(f"G1 X{x2:.3f} Y{y2:.3f}")
+        cur_pos = end
+
+    if pen_is_down:
         out.append(PEN_UP_CMD)
 
     out.append("M30")
     return "\n".join(out)
 
 
-def text_to_hershey_gcode(text: str):
+def text_to_gcode(text: str) -> str:
+    """Public API used by the Flask app."""
     text = (text or "").rstrip("\n")
     if not text.strip():
         return "\n".join(["G21", "G90", PEN_UP_CMD, "M30"])
 
     hf = HersheyFonts()
     hf.load_default_font(HERSHEY_FONT_NAME)
-    hf.normalize_rendering(1.0)  # keep native units
+    hf.normalize_rendering(1.0)
 
-    mm_per_unit = compute_mm_per_unit_for_cap_height(hf)
+    mm_per_unit = _mm_per_unit_for_cap_height(hf)
 
-    # Line gap in units based on cap height
-    # Convert 1 cap-height (mm) back into units using mm_per_unit
+    # Spacing in units based on cap height
     cap_height_units = TARGET_CAP_HEIGHT_MM / mm_per_unit
     line_gap_units = cap_height_units * LINE_GAP_CAP_MULT
 
-    # Maximum width in font units for wrapping
+    # Wrap width in units
     max_width_units = MAX_TEXT_WIDTH_MM / mm_per_unit
 
     if WRAP_TEXT:
-        lines = wrap_text_lines(hf, text, max_width_units=max_width_units)
+        lines = _wrap_text_lines(hf, text, max_width_units=max_width_units)
     else:
         lines = text.splitlines() or [""]
 
-    segs_units = segments_for_multiline_text_down(hf, lines, line_gap_units=line_gap_units)
-    segs_mm = units_to_mm_left_middle(segs_units, mm_per_unit=mm_per_unit)
+    segs_units = _segments_for_multiline_text_down(hf, lines, line_gap_units=line_gap_units)
+    segs_mm = _units_to_mm_left_middle(segs_units, mm_per_unit=mm_per_unit)
 
-    return to_gcode(segs_mm)
+    return _to_gcode(segs_mm)
 
 
-def main():
-    print(f"Hershey font: {HERSHEY_FONT_NAME}")
-    print(f"Target capital height: {TARGET_CAP_HEIGHT_MM} mm (0.5 cm)")
-
-    # Rough estimate of how many characters fit per line at the current size
+# Optional CLI for quick testing (does not affect Flask usage)
+if __name__ == "__main__":
     hf = HersheyFonts()
     hf.load_default_font(HERSHEY_FONT_NAME)
     hf.normalize_rendering(1.0)
-    mm_per_unit = compute_mm_per_unit_for_cap_height(hf)
+    mm_per_unit = _mm_per_unit_for_cap_height(hf)
     max_width_units = MAX_TEXT_WIDTH_MM / mm_per_unit
-    est_chars = estimate_max_chars_per_line(hf, max_width_units=max_width_units)
+    est_chars = _estimate_max_chars_per_line(hf, max_width_units=max_width_units)
 
+    print(f"Hershey font: {HERSHEY_FONT_NAME}")
+    print(f"Target cap height: {TARGET_CAP_HEIGHT_MM} mm")
     print("Placement: LEFT-MIDDLE (block vertically centered). Long lines wrap to fit width.")
     if est_chars:
         print(f"Approx max characters per line at this size: ~{est_chars} (varies by letters/spaces)")
@@ -304,11 +341,6 @@ def main():
         if not s.strip():
             break
 
-        gcode = text_to_hershey_gcode(s)
         print("\n--- GCODE START ---")
-        print(gcode)
+        print(text_to_gcode(s))
         print("--- GCODE END ---\n")
-
-
-if __name__ == "__main__":
-    main()

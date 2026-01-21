@@ -82,6 +82,7 @@ function App() {
     }
   };
 
+  // ========== Send to Plotter ==========
   const handleSendToPlotter = async () => {
     let content = '';
 

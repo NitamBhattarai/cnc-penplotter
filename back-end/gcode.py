@@ -25,7 +25,7 @@ WORKSPACE_HEIGHT_MM: float = 150.0
 MARGIN_MM: float = 5.0
 
 # Motion
-FEEDRATE: int = 1500
+FEEDRATE: int = 2000
 
 # Target "capital letter height" (0.5 cm = 5 mm)
 TARGET_CAP_HEIGHT_MM: float = 10.0

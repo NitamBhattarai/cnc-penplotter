@@ -1,10 +1,11 @@
-# hershey_gcode_cli_fixed_size_top_right.py
-# pip install Hershey-Fonts
-# Run: python hershey_gcode_cli_fixed_size_top_right.py
+# hershey_gcode_cli.py
+# Install: pip install Hershey-Fonts
+# Run:     python hershey_gcode_cli.py
+# Type any text -> prints Hershey stroke-based G-code to the terminal.
 #
-# Behavior:
+# Updated behavior:
 # - Fixed font size: capital-letter height ≈ 0.5 cm (5 mm)
-# - Text is anchored to START from TOP-RIGHT of the workspace (with margin)
+# - Text is anchored from TOP-RIGHT of the workspace (with margin)
 # - Multi-line supported (real newlines). Lines go DOWN from the top.
 
 from HersheyFonts import HersheyFonts
@@ -13,22 +14,23 @@ from HersheyFonts import HersheyFonts
 WORKSPACE_WIDTH_MM  = 150
 WORKSPACE_HEIGHT_MM = 150
 MARGIN_MM           = 5
-FEEDRATE            = 1500
+FEEDRATE            = 1000
 
 # Target "capital letter height" (0.5 cm = 5 mm)
 TARGET_CAP_HEIGHT_MM = 5.0
 
-# Extra gap between lines, in "cap-height" multiples
-LINE_GAP_CAP_MULT = 0.35  # tweak: 0.2 tighter, 0.6 looser
+# Extra gap between lines, as a fraction of cap height
+LINE_GAP_CAP_MULT = 0.35  # 0.2 tighter, 0.6 looser
 
 # Pen commands (match your GRBL setup)
 PEN_DOWN_CMD = "M03 S45\nG4 P0.2"
 PEN_UP_CMD   = "M5\nG4 P0.2"
 
-# Italic variants: "timesi" (Times Italic), "rowmani" (Roman Italic). You can also try "scriptc" for a cursive look.
-HERSHEY_FONT_NAME = "timesi"
+# HersheyFonts includes italic variants such as: "timesi" (Times Italic), "rowmani" (Roman Italic).
+# Use one of these for italic handwriting-like output.
+HERSHEY_FONT_NAME = "timesi"  # italic font (alternatives: "rowmani", "scriptc")
 
-# Optional flips (if your machine is mirrored)
+# Axis flips (if your machine is mirrored)
 FLIP_X = False
 FLIP_Y = False
 
@@ -53,7 +55,8 @@ def bbox_of_segments(segs):
 def segments_for_multiline_text_down(hf: HersheyFonts, text: str, line_gap_units: float):
     """
     Build segments for multi-line text in font units.
-    Anchoring is NOT applied here; we just stack lines downward.
+    Each line is normalized so its TOP is y=0 and LEFT is x=0.
+    Lines are stacked downward.
     """
     lines = text.splitlines() or [""]
 
@@ -66,17 +69,16 @@ def segments_for_multiline_text_down(hf: HersheyFonts, text: str, line_gap_units
             y_cursor -= line_gap_units
             continue
 
-        # Normalize this line so it starts at x=0 (left), and its TOP is y=0
         minx, miny, maxx, maxy = bbox_of_segments(segs)
 
-        # Make line's top = 0 by subtracting maxy; make left = 0 by subtracting minx
+        # Normalize line: left = 0, top = 0
         norm = [((x1 - minx, y1 - maxy), (x2 - minx, y2 - maxy)) for (x1, y1), (x2, y2) in segs]
 
-        # Shift line down by y_cursor (y_cursor is negative as we go down)
+        # Shift line down by y_cursor
         shifted = [((x1, y1 + y_cursor), (x2, y2 + y_cursor)) for (x1, y1), (x2, y2) in norm]
         all_segs.extend(shifted)
 
-        # Move cursor down by this line's height + gap
+        # Advance cursor down by line height + gap
         height = maxy - miny
         y_cursor -= (height + line_gap_units)
 
@@ -84,40 +86,31 @@ def segments_for_multiline_text_down(hf: HersheyFonts, text: str, line_gap_units
 
 
 def compute_mm_per_unit_for_cap_height(hf: HersheyFonts):
-    """
-    Compute mm-per-font-unit so that a typical capital letter is TARGET_CAP_HEIGHT_MM tall.
-
-    We use 'H' as the reference capital letter (you can switch to 'M' or 'A' if you prefer).
-    """
-    ref = "H"
-    segs = list(hf.lines_for_text(ref))
+    """Compute mm-per-font-unit so that capital 'H' height == TARGET_CAP_HEIGHT_MM."""
+    segs = list(hf.lines_for_text("H"))
     if not segs:
-        # fallback safe value
         return 0.35
-
     _, miny, _, maxy = bbox_of_segments(segs)
-    cap_height_units = (maxy - miny)
+    cap_height_units = maxy - miny
     if cap_height_units <= 0:
         return 0.35
-
     return TARGET_CAP_HEIGHT_MM / cap_height_units
 
 
 def units_to_mm_top_right(segs_units, mm_per_unit):
     """
     Convert font-unit segments to mm and anchor the WHOLE text block to top-right.
-    Top-right anchor point: (WORKSPACE_WIDTH_MM - MARGIN_MM, WORKSPACE_HEIGHT_MM - MARGIN_MM)
+    Text block's top-right (maxx,maxy) maps to (WORKSPACE_WIDTH_MM - MARGIN_MM, WORKSPACE_HEIGHT_MM - MARGIN_MM).
     """
     if not segs_units:
         return []
 
     minx, miny, maxx, maxy = bbox_of_segments(segs_units)
 
-    # We want the text block's top-right (maxx, maxy) to land at the workspace top-right (with margin)
     anchor_x = WORKSPACE_WIDTH_MM - MARGIN_MM
     anchor_y = WORKSPACE_HEIGHT_MM - MARGIN_MM
 
-    segs_mm = []
+    out = []
     for (x1, y1), (x2, y2) in segs_units:
         X1 = (x1 - maxx) * mm_per_unit + anchor_x
         Y1 = (y1 - maxy) * mm_per_unit + anchor_y
@@ -137,9 +130,9 @@ def units_to_mm_top_right(segs_units, mm_per_unit):
             Y1 = clamp(Y1, MARGIN_MM, WORKSPACE_HEIGHT_MM - MARGIN_MM)
             Y2 = clamp(Y2, MARGIN_MM, WORKSPACE_HEIGHT_MM - MARGIN_MM)
 
-        segs_mm.append(((X1, Y1), (X2, Y2)))
+        out.append(((X1, Y1), (X2, Y2)))
 
-    return segs_mm
+    return out
 
 
 def to_gcode(segs_mm):
@@ -149,7 +142,7 @@ def to_gcode(segs_mm):
     out.append(PEN_UP_CMD)
     out.append(f"F{FEEDRATE}")
 
-    # Simple/robust: lift between every segment (safe, but verbose)
+    # Safe/robust: lift between every segment (verbose but reliable)
     for (x1, y1), (x2, y2) in segs_mm:
         out.append(PEN_UP_CMD)
         out.append(f"G0 X{x1:.3f} Y{y1:.3f}")
@@ -168,12 +161,11 @@ def text_to_hershey_gcode(text: str):
 
     hf = HersheyFonts()
     hf.load_default_font(HERSHEY_FONT_NAME)
-    hf.normalize_rendering(1.0)  # keep native units
+    hf.normalize_rendering(1.0)
 
     mm_per_unit = compute_mm_per_unit_for_cap_height(hf)
 
-    # Line gap in units based on cap height
-    # Convert 1 cap-height (mm) back into units using mm_per_unit
+    # Convert one cap-height (mm) back into units for spacing
     cap_height_units = TARGET_CAP_HEIGHT_MM / mm_per_unit
     line_gap_units = cap_height_units * LINE_GAP_CAP_MULT
 

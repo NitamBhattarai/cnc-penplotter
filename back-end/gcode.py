@@ -4,8 +4,9 @@
 #
 # Behavior:
 # - Fixed font size: capital-letter height ≈ 0.5 cm (5 mm)
-# - Text is anchored to START from TOP-RIGHT of the workspace (with margin)
-# - Multi-line supported (real newlines). Lines go DOWN from the top.
+# - Text starts from the LEFT side and the whole text block is vertically centered ("left-middle")
+# - Multi-line supported. Lines are stacked downward and the block is centered around the page middle.
+# - If a line is too long, text is wrapped to fit within the workspace width.
 
 from HersheyFonts import HersheyFonts
 
@@ -35,6 +36,11 @@ FLIP_Y = False
 # Clamp into workspace (safer)
 CLAMP_COORDS = True
 
+# Wrap long lines to fit within the drawable width
+WRAP_TEXT = True
+# Max drawable width (mm) inside margins
+MAX_TEXT_WIDTH_MM = WORKSPACE_WIDTH_MM - 2 * MARGIN_MM
+
 
 def clamp(v, lo, hi):
     return lo if v < lo else hi if v > hi else v
@@ -50,12 +56,83 @@ def bbox_of_segments(segs):
     return min(xs), min(ys), max(xs), max(ys)
 
 
-def segments_for_multiline_text_down(hf: HersheyFonts, text: str, line_gap_units: float):
+def line_width_units(hf: HersheyFonts, s: str) -> float:
+    segs = list(hf.lines_for_text(s))
+    if not segs:
+        return 0.0
+    minx, _, maxx, _ = bbox_of_segments(segs)
+    return maxx - minx
+
+
+def estimate_max_chars_per_line(hf: HersheyFonts, max_width_units: float) -> int:
+    # Use a mixed sample to estimate average character width
+    sample = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+    w = line_width_units(hf, sample)
+    if w <= 0:
+        return 0
+    avg = w / len(sample)
+    if avg <= 0:
+        return 0
+    return int(max_width_units // avg)
+
+
+def wrap_text_lines(hf: HersheyFonts, text: str, max_width_units: float):
+    """
+    Wrap input text into a list of lines so each line's width (in font units) <= max_width_units.
+    - Preserves existing newlines.
+    - Wraps primarily on spaces; if a single word exceeds width, it hard-wraps by characters.
+    """
+    out_lines = []
+    for raw_line in (text.splitlines() or [""]):
+        line = raw_line.rstrip("\n")
+        if not line:
+            out_lines.append("")
+            continue
+
+        words = line.split(" ")
+        cur = ""
+        for w in words:
+            if cur == "":
+                candidate = w
+            else:
+                candidate = cur + " " + w
+
+            if line_width_units(hf, candidate) <= max_width_units:
+                cur = candidate
+                continue
+
+            # candidate too wide: push current line if non-empty
+            if cur:
+                out_lines.append(cur)
+                cur = ""
+
+            # if the word itself is too wide, hard-wrap it
+            if line_width_units(hf, w) > max_width_units:
+                chunk = ""
+                for ch in w:
+                    cand2 = chunk + ch
+                    if line_width_units(hf, cand2) <= max_width_units:
+                        chunk = cand2
+                    else:
+                        if chunk:
+                            out_lines.append(chunk)
+                        chunk = ch
+                if chunk:
+                    cur = chunk
+            else:
+                cur = w
+
+        out_lines.append(cur)
+
+    return out_lines
+
+
+def segments_for_multiline_text_down(hf: HersheyFonts, lines, line_gap_units: float):
     """
     Build segments for multi-line text in font units.
     Anchoring is NOT applied here; we just stack lines downward.
     """
-    lines = text.splitlines() or [""]
+    lines = list(lines) if lines is not None else [""]
 
     all_segs = []
     y_cursor = 0.0  # start at top line, then move DOWN (negative y)
@@ -103,26 +180,35 @@ def compute_mm_per_unit_for_cap_height(hf: HersheyFonts):
     return TARGET_CAP_HEIGHT_MM / cap_height_units
 
 
-def units_to_mm_top_left(segs_units, mm_per_unit):
+def units_to_mm_left_middle(segs_units, mm_per_unit):
     """
-    Convert font-unit segments to mm and anchor the WHOLE text block to top-left.
-    Top-left anchor point: (MARGIN_MM, WORKSPACE_HEIGHT_MM - MARGIN_MM)
+    Convert font-unit segments to mm.
+
+    Placement:
+    - X: align the block's left edge to the left margin.
+    - Y: vertically center the ENTIRE text block around the page midline ("left-middle").
+
+    This means if there are 3 lines, the middle line will be around the center of the page,
+    and the top line will start above it.
     """
     if not segs_units:
         return []
 
     minx, miny, maxx, maxy = bbox_of_segments(segs_units)
 
-    # We want the text block's top-left (minx, maxy) to land at the workspace top-left (with margin)
+    # Left margin anchor for X
     anchor_x = MARGIN_MM
-    anchor_y = WORKSPACE_HEIGHT_MM - MARGIN_MM
+
+    # Center of the workspace for Y
+    workspace_center_y = WORKSPACE_HEIGHT_MM / 2.0
+    block_center_y_units = (miny + maxy) / 2.0
 
     segs_mm = []
     for (x1, y1), (x2, y2) in segs_units:
         X1 = (x1 - minx) * mm_per_unit + anchor_x
-        Y1 = (y1 - maxy) * mm_per_unit + anchor_y
+        Y1 = (y1 - block_center_y_units) * mm_per_unit + workspace_center_y
         X2 = (x2 - minx) * mm_per_unit + anchor_x
-        Y2 = (y2 - maxy) * mm_per_unit + anchor_y
+        Y2 = (y2 - block_center_y_units) * mm_per_unit + workspace_center_y
 
         if FLIP_X:
             X1 = WORKSPACE_WIDTH_MM - X1
@@ -177,8 +263,16 @@ def text_to_hershey_gcode(text: str):
     cap_height_units = TARGET_CAP_HEIGHT_MM / mm_per_unit
     line_gap_units = cap_height_units * LINE_GAP_CAP_MULT
 
-    segs_units = segments_for_multiline_text_down(hf, text, line_gap_units=line_gap_units)
-    segs_mm = units_to_mm_top_left(segs_units, mm_per_unit=mm_per_unit)
+    # Maximum width in font units for wrapping
+    max_width_units = MAX_TEXT_WIDTH_MM / mm_per_unit
+
+    if WRAP_TEXT:
+        lines = wrap_text_lines(hf, text, max_width_units=max_width_units)
+    else:
+        lines = text.splitlines() or [""]
+
+    segs_units = segments_for_multiline_text_down(hf, lines, line_gap_units=line_gap_units)
+    segs_mm = units_to_mm_left_middle(segs_units, mm_per_unit=mm_per_unit)
 
     return to_gcode(segs_mm)
 
@@ -186,7 +280,19 @@ def text_to_hershey_gcode(text: str):
 def main():
     print(f"Hershey font: {HERSHEY_FONT_NAME}")
     print(f"Target capital height: {TARGET_CAP_HEIGHT_MM} mm (0.5 cm)")
-    print("Anchored: TOP-RIGHT (with margin). Multi-line: paste text with real new lines.\n")
+
+    # Rough estimate of how many characters fit per line at the current size
+    hf = HersheyFonts()
+    hf.load_default_font(HERSHEY_FONT_NAME)
+    hf.normalize_rendering(1.0)
+    mm_per_unit = compute_mm_per_unit_for_cap_height(hf)
+    max_width_units = MAX_TEXT_WIDTH_MM / mm_per_unit
+    est_chars = estimate_max_chars_per_line(hf, max_width_units=max_width_units)
+
+    print("Placement: LEFT-MIDDLE (block vertically centered). Long lines wrap to fit width.")
+    if est_chars:
+        print(f"Approx max characters per line at this size: ~{est_chars} (varies by letters/spaces)")
+    print()
 
     while True:
         try:

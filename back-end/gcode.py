@@ -103,25 +103,25 @@ def compute_mm_per_unit_for_cap_height(hf: HersheyFonts):
     return TARGET_CAP_HEIGHT_MM / cap_height_units
 
 
-def units_to_mm_top_right(segs_units, mm_per_unit):
+def units_to_mm_top_left(segs_units, mm_per_unit):
     """
-    Convert font-unit segments to mm and anchor the WHOLE text block to top-right.
-    Top-right anchor point: (WORKSPACE_WIDTH_MM - MARGIN_MM, WORKSPACE_HEIGHT_MM - MARGIN_MM)
+    Convert font-unit segments to mm and anchor the WHOLE text block to top-left.
+    Top-left anchor point: (MARGIN_MM, WORKSPACE_HEIGHT_MM - MARGIN_MM)
     """
     if not segs_units:
         return []
 
     minx, miny, maxx, maxy = bbox_of_segments(segs_units)
 
-    # We want the text block's top-right (maxx, maxy) to land at the workspace top-right (with margin)
-    anchor_x = WORKSPACE_WIDTH_MM - MARGIN_MM
+    # We want the text block's top-left (minx, maxy) to land at the workspace top-left (with margin)
+    anchor_x = MARGIN_MM
     anchor_y = WORKSPACE_HEIGHT_MM - MARGIN_MM
 
     segs_mm = []
     for (x1, y1), (x2, y2) in segs_units:
-        X1 = (x1 - maxx) * mm_per_unit + anchor_x
+        X1 = (x1 - minx) * mm_per_unit + anchor_x
         Y1 = (y1 - maxy) * mm_per_unit + anchor_y
-        X2 = (x2 - maxx) * mm_per_unit + anchor_x
+        X2 = (x2 - minx) * mm_per_unit + anchor_x
         Y2 = (y2 - maxy) * mm_per_unit + anchor_y
 
         if FLIP_X:
@@ -178,7 +178,7 @@ def text_to_hershey_gcode(text: str):
     line_gap_units = cap_height_units * LINE_GAP_CAP_MULT
 
     segs_units = segments_for_multiline_text_down(hf, text, line_gap_units=line_gap_units)
-    segs_mm = units_to_mm_top_right(segs_units, mm_per_unit=mm_per_unit)
+    segs_mm = units_to_mm_top_left(segs_units, mm_per_unit=mm_per_unit)
 
     return to_gcode(segs_mm)
 

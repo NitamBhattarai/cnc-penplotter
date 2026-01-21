@@ -23,7 +23,7 @@ TARGET_CAP_HEIGHT_MM = 5.0
 LINE_GAP_CAP_MULT = 0.35  # tweak: 0.2 tighter, 0.6 looser
 
 # Pen commands (match your GRBL setup)
-PEN_DOWN_CMD = "M03 S45\nG4 P0.2"
+PEN_DOWN_CMD = "M03 S35\nG4 P0.2"
 PEN_UP_CMD   = "M5\nG4 P0.2"
 
 # Italic variants: "timesi" (Times Italic), "rowmani" (Roman Italic). You can also try "scriptc" for a cursive look.

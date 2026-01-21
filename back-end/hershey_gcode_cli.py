@@ -14,7 +14,7 @@ from HersheyFonts import HersheyFonts
 WORKSPACE_WIDTH_MM  = 150
 WORKSPACE_HEIGHT_MM = 150
 MARGIN_MM           = 5
-FEEDRATE            = 1000
+FEEDRATE            = 1500
 
 # Target "capital letter height" (0.5 cm = 5 mm)
 TARGET_CAP_HEIGHT_MM = 5.0

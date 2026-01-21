@@ -56,7 +56,7 @@ MAX_TEXT_WIDTH_MM: float = WORKSPACE_WIDTH_MM - 2 * MARGIN_MM
 
 # If a segment starts close to the previous segment end, keep the pen down and continue.
 # This drastically reduces M5/M03 toggles (especially for letters like O).
-CONNECT_TOL_MM: float = 0.40
+CONNECT_TOL_MM: float = 0.60
 
 
 def _clamp(v: float, lo: float, hi: float) -> float:

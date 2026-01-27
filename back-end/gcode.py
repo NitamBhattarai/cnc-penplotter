@@ -20,8 +20,8 @@ from __future__ import annotations
 from HersheyFonts import HersheyFonts
 
 # ===== Plotter / workspace config (mm) =====
-WORKSPACE_WIDTH_MM: float = 255.0
-WORKSPACE_HEIGHT_MM: float = 255.0
+WORKSPACE_WIDTH_MM: float = 245.0
+WORKSPACE_HEIGHT_MM: float = 245.0
 MARGIN_MM: float = 5.0
 
 # Motion

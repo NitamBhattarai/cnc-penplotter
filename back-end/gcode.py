@@ -20,15 +20,15 @@ from __future__ import annotations
 from HersheyFonts import HersheyFonts
 
 # ===== Plotter / workspace config (mm) =====
-WORKSPACE_WIDTH_MM: float = 195.0
-WORKSPACE_HEIGHT_MM: float = 195.0
+WORKSPACE_WIDTH_MM: float = 255.0
+WORKSPACE_HEIGHT_MM: float = 255.0
 MARGIN_MM: float = 5.0
 
 # Motion
 FEEDRATE: int = 5000
 
 # Target "capital letter height" (0.5 cm = 5 mm)
-TARGET_CAP_HEIGHT_MM: float = 25.0
+TARGET_CAP_HEIGHT_MM: float = 21.0
 
 # Extra gap between lines, as a fraction of cap height
 LINE_GAP_CAP_MULT: float = 0.35  # 0.2 tighter, 0.6 looser
